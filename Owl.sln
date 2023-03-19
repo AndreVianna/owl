@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.33502.453
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Owl.CLI", "Owl.CLI\Owl.CLI.csproj", "{9C178E73-5FE1-4BE7-A4FF-31FC9D762897}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Owl.Service", "Owl.Service\Owl.Service.csproj", "{0E76D42B-E20C-4BB8-841B-28EFCA5740B9}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{9C178E73-5FE1-4BE7-A4FF-31FC9D762897}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9C178E73-5FE1-4BE7-A4FF-31FC9D762897}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9C178E73-5FE1-4BE7-A4FF-31FC9D762897}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9C178E73-5FE1-4BE7-A4FF-31FC9D762897}.Release|Any CPU.Build.0 = Release|Any CPU
+		{0E76D42B-E20C-4BB8-841B-28EFCA5740B9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0E76D42B-E20C-4BB8-841B-28EFCA5740B9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0E76D42B-E20C-4BB8-841B-28EFCA5740B9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0E76D42B-E20C-4BB8-841B-28EFCA5740B9}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {E650D1AD-D52E-43DE-ACEB-0878C0A3A555}
+	EndGlobalSection
+EndGlobal
