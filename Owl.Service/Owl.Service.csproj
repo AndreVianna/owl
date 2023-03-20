@@ -6,11 +6,26 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UserSecretsId>dotnet-Owl.Service-29b116ee-2be3-43ef-bad2-4090a14fa7bf</UserSecretsId>
     <AssemblyName>owl_service</AssemblyName>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Google.Cloud.Speech.V1" Version="3.4.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="7.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="7.0.1" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="7.0.0" />
+    <PackageReference Include="NAudio" Version="2.1.0" />
+    <PackageReference Include="Serilog" Version="2.12.0" />
+    <PackageReference Include="Serilog.Extensions.Hosting" Version="5.0.1" />
+    <PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
     <PackageReference Include="System.Speech" Version="7.0.0" />
   </ItemGroup>
+
+  <ItemGroup>
+    <RuntimeHostConfigurationOption Include="System.Runtime.InteropServices.BuiltInComInteropSupport" Value="true" />
+  </ItemGroup>
+
 </Project>

@@ -16,7 +16,8 @@ class MainCommand : RootCommand
                 start        Start the owl_service process.
                 stop         Stop the owl_service process.
 
-         Use \"owl <command> -h\" or \"owl <command> --help\" for help with a specific command.
+         Use "owl <command> -h" or "owl <command> --help" for help with a specific command.
+         
          """;
 
     protected override bool TryExecute()
@@ -33,11 +34,15 @@ class MainCommand : RootCommand
 
     protected override ICommand? CreateSubCommand()
     {
-        return Arguments[0] switch
+        return Arguments.Length switch
         {
-            "start" => new StartCommand(Arguments[1..]),
-            "stop" => new StopCommand(Arguments[1..]),
-            _ => base.CreateSubCommand()
+            0 => null,
+            _ => Arguments[0] switch
+            {
+                "start" => new StartCommand(Arguments[1..]),
+                "stop" => new StopCommand(Arguments[1..]),
+                _ => base.CreateSubCommand()
+            }
         };
     }
 }

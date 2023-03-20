@@ -10,7 +10,8 @@ class StopCommand : ChildCommand
          Usage: owl stop [options]
  
          Options:
-                -h, --help   Show help information for the stop command. 
+                -h, --help   Show help information for the stop command.
+         
          """;
 
     protected override bool TryExecute()

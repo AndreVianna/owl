@@ -15,10 +15,11 @@ class StartCommand : ChildCommand
         }
 
         Console.WriteLine($"Starting '{ServiceName}' process...");
-        var process = new Process();
+        using var process = new Process();
         process.StartInfo.FileName = $"{ServiceName}.exe";
         process.StartInfo.Arguments = "";
         process.StartInfo.WorkingDirectory = ".";
+        process.StartInfo.UseShellExecute = false;
         process.Start();
 
         return true;
@@ -27,7 +28,8 @@ class StartCommand : ChildCommand
     protected override string Usage => """
          Usage: owl start [options]
          Options:
-                -h, --help   Show help information for the start command. 
+                -h, --help   Show help information for the start command.
+         
          """;
 
     private static bool IsServiceRunning()
