@@ -1,6 +1,6 @@
 ﻿namespace Owl.CLI;
 
-interface ICommand
+internal interface ICommand
 {
     int Execute();
 }

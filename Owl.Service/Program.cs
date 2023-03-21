@@ -7,6 +7,9 @@ Host.CreateDefaultBuilder()
             .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
             .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
             .Enrich.FromLogContext()
-            .WriteTo.File("app.log", rollingInterval: RollingInterval.Day, retainedFileCountLimit: 31))
+            .WriteTo.File("logs/owl_.log", 
+                rollingInterval: RollingInterval.Hour, 
+                retainedFileCountLimit: 31,
+                outputTemplate: "[{Timestamp:yyyy-MM-ddTHH:mm:ss.ffffff}] {Message}{NewLine}{Exception}"))
     .Build()
     .Run();

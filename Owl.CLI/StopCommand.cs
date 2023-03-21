@@ -1,6 +1,6 @@
 ﻿namespace Owl.CLI;
 
-class StopCommand : ChildCommand
+internal class StopCommand : ChildCommand
 {
     public StopCommand(string[] args) : base("stop", args)
     {
@@ -16,7 +16,7 @@ class StopCommand : ChildCommand
 
     protected override bool TryExecute()
     {
-        Console.WriteLine($"Stopping {ServiceName} process...");
+        Console.WriteLine($"Stopping '{ServiceName}' process...");
         StopService();
         return true;
     }
@@ -25,8 +25,7 @@ class StopCommand : ChildCommand
     {
         try
         {
-            var processes = Process.GetProcessesByName(ServiceName);
-            foreach (var process in processes)
+            foreach (var process in Process.GetProcessesByName(ServiceName))
             {
                 process.Kill();
             }

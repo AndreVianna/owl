@@ -5,6 +5,7 @@ namedPipeServer.WaitForConnection();
 
 using var reader = new StreamReader(namedPipeServer);
 var previousText = string.Empty;
+var padSize = 0;
 while (reader.ReadLine() is { } line)
 {
     if (string.IsNullOrWhiteSpace(line)) continue;
@@ -20,7 +21,8 @@ while (reader.ReadLine() is { } line)
     {
         if (line == previousText) continue;
         previousText = line;
+        padSize = Math.Max(previousText.Length, line.Length);
         Console.SetCursorPosition(0, Console.CursorTop);
-        Console.Write(line.PadRight(previousText.Length, ' '));
+        Console.Write(line.PadRight(padSize, ' '));
     }
 }

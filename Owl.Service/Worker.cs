@@ -1,198 +1,135 @@
+using System.IO;
+
 using Timer = System.Threading.Timer;
 
 namespace Owl.Service;
 
 public class Worker : BackgroundService
 {
-    private enum RecordingState
-    {
-        Idle,
-        Recording,
-        Processing
-    }
-
     private readonly ILogger<Worker> _logger;
-    private readonly StringBuilder _recognizedText;
-    private readonly IConfiguration _configuration;
+    private readonly WaveInEvent _audioRecorder;
+    private readonly StreamHandler _streamHandler;
+    private readonly TranscriptionHandler _transcriptionHandler;
+
+    private readonly NoiseProvider _noiseProvider;
+    private static Timer? _resetStreamTimer;
     private RecordingState _recordingState = RecordingState.Idle;
-    private StreamWriter? _pipeStreamWriter;
-    private readonly SpeechClient.StreamingRecognizeStream _stream;
+
 
     public Worker(IConfiguration configuration, ILogger<Worker> logger)
     {
         _logger = logger;
-        _configuration = configuration;
-        _recognizedText = new StringBuilder();
-        var speechClient = CreateSpeechClient();
-        _stream = speechClient.StreamingRecognize();
+        try
+        {
+            _logger.LogInformation("Creating Worker...");
+
+            _audioRecorder = new() { WaveFormat = new(16000, 1) };
+            _noiseProvider = new(_audioRecorder);
+            _streamHandler = new(configuration, _audioRecorder, logger);
+            _transcriptionHandler = new(logger);
+
+            _logger.LogInformation("Worker created.");
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "Failed to create Worker.");
+            throw;
+        }
     }
 
-    private SpeechClient CreateSpeechClient()
+    public override void Dispose()
     {
-        var credentialJson = GetGoogleCredentialAsJson();
-        var credentials = GoogleCredential.FromJson(credentialJson).CreateScoped(SpeechClient.DefaultScopes);
-
-        var speechClientBuilder = new SpeechClientBuilder { ChannelCredentials = credentials.ToChannelCredentials() };
-        return speechClientBuilder.Build();
+        base.Dispose();
+        _audioRecorder.StopRecording();
+        _audioRecorder.Dispose();
+        _streamHandler.Dispose();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Worker running at: {time}", DateTimeOffset.Now);
-
-        await InitializeSpeechRecognitionStreamAsync();
-        InitializeSpeechRecognition(stoppingToken);
-
-        await using var resetStreamTimer = new Timer(ResetStreamCallbackAsync, null, TimeSpan.FromSeconds(240), TimeSpan.FromSeconds(240));
-
-    }
-
-    private async Task InitializeSpeechRecognitionStreamAsync()
-    {
-        await _stream.WriteAsync(new StreamingRecognizeRequest
+        try
         {
-            StreamingConfig = new StreamingRecognitionConfig
-            {
-                Config = new RecognitionConfig
-                {
-                    Encoding = RecognitionConfig.Types.AudioEncoding.Linear16,
-                    SampleRateHertz = 16000,
-                    LanguageCode = "en-US",
-                },
-                InterimResults = true, // Enable interim results
-                SingleUtterance = false
-            }
-        });
-    }
+            _logger.LogInformation("Starting Worker...");
 
-    private async void ResetStreamCallbackAsync(object? state)
-    {
-        // Close the current stream and dispose of the resources
-        await _stream.WriteCompleteAsync();
+            await _streamHandler.ConfigureAsync();
 
-        // Reinitialize the speech recognition stream
-        await InitializeSpeechRecognitionStreamAsync();
-    }
+            stoppingToken.Register(_audioRecorder.StopRecording);
+            
+            _audioRecorder.DataAvailable += async (_, args) => await _streamHandler.WriteAudioDataAsync(args.Buffer, args.BytesRecorded);
+            
+            StartDataProcessing(stoppingToken);
+            _audioRecorder.StartRecording();
 
-    private void InitializeSpeechRecognition(CancellationToken cancellationToken)
-    {
-        // Start the microphone and streaming the audio
-        var waveIn = new WaveInEvent { WaveFormat = new WaveFormat(16000, 1) };
-        var waveProvider = new BufferedWaveProvider(waveIn.WaveFormat);
-        var silenceDetector = new SilenceDetectingSampleProvider(waveProvider.ToSampleProvider());
+            StartResetStreamTimer();
 
-        waveIn.DataAvailable += async (_, args) => await _stream
-            .WriteAsync(new StreamingRecognizeRequest
-            {
-                AudioContent = ByteString.CopyFrom(args.Buffer, 0, args.BytesRecorded)
-            });
-
-        waveIn.StartRecording();
-
-        cancellationToken.Register(() =>
+            _logger.LogInformation("Worker started.");
+        }
+        catch (Exception e)
         {
-            waveIn.StopRecording();
-            waveIn.Dispose();
-        });
+            _logger.LogError(e, "Failed to execute Worker.");
+            throw;
+        }
+    }
 
+    private void StartResetStreamTimer()
+    {
+        _resetStreamTimer = new(ResetStreamAsync, null, TimeSpan.FromSeconds(240), TimeSpan.FromSeconds(240));
+    }
+
+    private async void ResetStreamAsync(object? _)
+    {
+        var previousState = _recordingState;
+        _recordingState = RecordingState.Resetting;
+        await _streamHandler.ResetStreamAsync();
+        _recordingState = previousState;
+    }
+
+
+    private void StartDataProcessing(CancellationToken cancellationToken)
+    {
         _ = Task.Run(async () =>
         {
-            var responseStream = _stream.GetResponseStream();
-            var buffer = new byte[waveIn.WaveFormat.AverageBytesPerSecond / 5];
-            var floatBuffer = new float[buffer.Length / 2];
-
-            while (await responseStream.MoveNextAsync(cancellationToken))
+            try
             {
-                var response = responseStream.Current;
-                foreach (var result in response.Results)
-                {
-                    var text = result.Alternatives.OrderByDescending(i => i.Confidence).First().Transcript.Trim();
-                    // Handle the recognized text
-                    HandleRecognizedText(text.Trim(), result.IsFinal);
-                }
-
-                var bytesRead = waveProvider.Read(buffer, 0, buffer.Length);
-                var waveBuffer = new WaveBuffer(buffer);
-                var samplesRead = silenceDetector.Read(floatBuffer, 0, bytesRead / 2);
-
-                if (samplesRead > 0)
-                {
-                    var audioData = ByteString.CopyFrom(waveBuffer.ByteBuffer, 0, samplesRead * 2);
-                    await _stream.WriteAsync(new StreamingRecognizeRequest { AudioContent = audioData });
-                }
+                _logger.LogInformation("Listening...");
+                await ProcessAudioDataAsync(cancellationToken);
+            }
+            catch (Exception e)
+            {
+                _logger.LogError(e, "An error happened while listening.");
+                throw;
             }
         }, cancellationToken);
     }
 
-    private void HandleRecognizedText(string text, bool isFinal)
+    private async Task ProcessAudioDataAsync(CancellationToken cancellationToken)
     {
-        _logger.LogInformation("Recognized text: {text}", text);
-
-        switch (text.ToLower())
+        var responseStream = _streamHandler.GetResponseStream();
+        while (await responseStream.MoveNextAsync(cancellationToken))
         {
-            case "start recording" when isFinal && _recordingState == RecordingState.Idle:
-                _recordingState = RecordingState.Processing;
-                _recognizedText.Clear();
-                _logger.LogInformation("Start transcribing speech to text...");
-                OpenConsole();
-                _recordingState = RecordingState.Recording;
-                return;
-            case "stop recording" when isFinal && _recordingState == RecordingState.Recording:
-                _recordingState = RecordingState.Processing;
-                CloseConsole();
-                SaveRecognizedText();
-                _logger.LogInformation("Transcription ended...");
-                _recordingState = RecordingState.Idle;
-                return;
-            default:
-                if (_recordingState != RecordingState.Recording) return;
-                if (!isFinal)
-                {
-                    _pipeStreamWriter?.WriteLine(text);
-                    return;
-                }
-
-                _recognizedText.AppendLine(text);
-                _pipeStreamWriter?.WriteLine($"[F]{text}");
-                _logger.LogInformation("Transcribed: {text}", text);
-                return;
+            await ProcessCurrentResponseStreamAsync(responseStream);
         }
     }
 
-    private void OpenConsole()
+    private async Task ProcessCurrentResponseStreamAsync(IAsyncEnumerator<StreamingRecognizeResponse> responseStream)
     {
-        var psi = new ProcessStartInfo
+        foreach (var result in responseStream.Current.Results)
         {
-            FileName = "cmd.exe",
-            Arguments = "/c start owl_display.exe",
-            UseShellExecute = false,
-            CreateNoWindow = false,
-        };
-        Process.Start(psi);
+            ProcessResult(result);
+        }
 
-        var namedPipeClient = new NamedPipeClientStream(".", "OwlPipe", PipeDirection.Out);
-        namedPipeClient.Connect();
-        _pipeStreamWriter = new StreamWriter(namedPipeClient) { AutoFlush = true };
+        await SendNoiseAsync();
     }
 
-    private void CloseConsole()
+    private async Task SendNoiseAsync()
     {
-        if (_pipeStreamWriter == null) return;
-        _pipeStreamWriter.Dispose();
-        _pipeStreamWriter = null;
+        if (!_noiseProvider.TryGenerateNoise(out var noiseBuffer, out var noiseBufferSize)) return;
+        await _streamHandler.WriteAudioDataAsync(noiseBuffer, noiseBufferSize);
     }
 
-    private void SaveRecognizedText()
+    private void ProcessResult(StreamingRecognitionResult result)
     {
-        var fileName = $"RecognizedText_{DateTimeOffset.Now:yyyyMMdd_HHmmss}.txt";
-        File.WriteAllText(fileName, _recognizedText.ToString());
-        _logger.LogInformation("Recognized text saved to file: {file}", fileName);
-    }
-
-    private string GetGoogleCredentialAsJson()
-    {
-        var section = _configuration.GetSection(nameof(GoogleCredential));
-        var json = JObject.FromObject(section.GetChildren().ToDictionary(c => c.Key, c => c.Value));
-        return json.ToString();
+        var alternative = result.Alternatives.OrderByDescending(i => i.Confidence).First();
+        _transcriptionHandler.Handle(ref _recordingState, alternative.Transcript.Trim(), alternative.Confidence, result.IsFinal);
     }
 }

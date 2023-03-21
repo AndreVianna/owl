@@ -1,6 +1,6 @@
 ﻿namespace Owl.CLI;
 
-class MainCommand : RootCommand
+internal class MainCommand : RootCommand
 {
     public MainCommand(string[] args) : base("main", args)
     {

@@ -1,6 +1,6 @@
 ﻿namespace Owl.CLI;
 
-class StartCommand : ChildCommand
+internal class StartCommand : ChildCommand
 {
     public StartCommand(string[] args) : base("start", args)
     {
@@ -10,17 +10,34 @@ class StartCommand : ChildCommand
     {
         if (IsServiceRunning())
         {
-            Console.WriteLine("The owl_service process is already running.");
+            Console.WriteLine($"The {ServiceName} process is already running.");
             return false;
         }
 
         Console.WriteLine($"Starting '{ServiceName}' process...");
         using var process = new Process();
-        process.StartInfo.FileName = $"{ServiceName}.exe";
-        process.StartInfo.Arguments = "";
+        process.StartInfo.FileName = "cmd.exe";
+        process.StartInfo.Arguments = $"/c start {ServiceName}.exe";
         process.StartInfo.WorkingDirectory = ".";
         process.StartInfo.UseShellExecute = false;
-        process.Start();
+        process.StartInfo.CreateNoWindow = true;
+        if (process.Start())
+        {
+            Console.WriteLine($"'{ServiceName}' started.");
+        }
+
+        //var psi = new ProcessStartInfo
+        //{
+        //    FileName = "cmd.exe",
+        //    Arguments = $"/c start {ServiceName}.exe",
+        //    UseShellExecute = false,
+        //    CreateNoWindow = true,
+        //};
+        //var process = Process.Start(psi);
+        //if (process is not null) 
+        //{
+        //    Console.WriteLine($"Starting '{ServiceName}' started...");
+        //}
 
         return true;
     }

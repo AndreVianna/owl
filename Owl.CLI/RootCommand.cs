@@ -1,6 +1,6 @@
 ﻿namespace Owl.CLI;
 
-abstract class RootCommand : CommandBase
+internal abstract class RootCommand : CommandBase
 {
     protected RootCommand(string name, string[] args) : base(name, args)
     {

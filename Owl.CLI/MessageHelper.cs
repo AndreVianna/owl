@@ -1,6 +1,6 @@
 ﻿namespace Owl.CLI;
 
-static class MessageHelper
+internal static class MessageHelper
 {
     public static void ShowHelp(string helpMessage, string? errorMessage = null)
     {
