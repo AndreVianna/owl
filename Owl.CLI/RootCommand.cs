@@ -11,15 +11,15 @@ internal abstract class RootCommand : CommandBase
         if (Arguments.Length > 0 && (Arguments[0] == "-h" || Arguments[0] == "--help"))
         {
             ShowHelp(Usage);
-            return 1;
+            return (int)ExitCode.Success;
         }
 
         if (TryExecute())
         {
-            return 1;
+            return (int)ExitCode;
         }
 
         ShowHelp(Usage, "Invalid option or command. Use \"-h\" or \"--help\" for help.");
-        return 0;
+        return (int)ExitCode.InvalidArgument;
     }
 }

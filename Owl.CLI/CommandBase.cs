@@ -8,7 +8,8 @@ internal abstract class CommandBase : ICommand
         Arguments = args;
     }
 
-    public string Name { get; }
+    protected string Name { get; }
+    protected ExitCode ExitCode { get; set; }
     protected string[] Arguments { get; }
 
     public abstract int Execute();

@@ -4,95 +4,89 @@ namespace Owl.Service;
 
 public class TranscriptionHandler
 {
-    private readonly ILogger _logger;
-    private readonly StringBuilder _recognizedText;
-    private StreamWriter? _pipeStreamWriter;
+    private readonly ILogger<TranscriptionHandler> _logger;
+    private readonly IDisplayWindow _displayWindow;
+    private readonly ITimestampedFileHandler _timestampedFileHandler;
 
-    public TranscriptionHandler(ILogger logger)
+    public TranscriptionHandler(IDisplayWindow displayWindow, ITimestampedFileHandler timestampedFileHandler, ILoggerFactory loggerFactory)
     {
-        _logger = logger;
-        _recognizedText = new();
+        _logger = loggerFactory.CreateLogger<TranscriptionHandler>();
+        _timestampedFileHandler = timestampedFileHandler;
+        _displayWindow = displayWindow;
+        State = RecordingState.Idle;
     }
 
-    public void Handle(ref RecordingState state, string text, float confidence, bool isFinal)
-    {
-        _logger.LogInformation("Recognized text: {text}", text);
+    public RecordingState State { get; set; }
 
-        switch (text.ToLower())
+    public async Task HandleAsync(string text, bool isFinal)
+    {
+        _logger.LogInformation("---------------------------------------------------------------------------");
+
+        var command = GetCommand(text, isFinal);
+        switch (command)
         {
-            case "start recording" when isFinal && state == RecordingState.Idle:
-                state = RecordingState.Processing;
-                StartTranscription();
-                state = RecordingState.Recording;
-                return;
-            case "stop recording" when isFinal && state == RecordingState.Recording:
-                state = RecordingState.Processing;
-                EndTranscription();
-                state = RecordingState.Idle;
-                return;
-            default:
-                if (state != RecordingState.Recording) return;
-                ProcessTranscription(text, confidence, isFinal);
-                return;
+            case TranscriptionCommand.StartRecording:
+                _logger.LogInformation("Starting Transcription...");
+                State = RecordingState.Processing;
+                await StartTranscriptionAsync().ConfigureAwait(false);
+                State = RecordingState.Recording;
+                break;
+            case TranscriptionCommand.StopRecording:
+                State = RecordingState.Processing;
+                await EndTranscriptionAsync().ConfigureAwait(false);
+                State = RecordingState.Idle;
+                _logger.LogInformation("Transcription ended.");
+                break;
+            case TranscriptionCommand.ProcessInput:
+                _logger.LogInformation("Processing input...");
+                await ProcessInputAsync(text, isFinal).ConfigureAwait(false);
+                break;
         }
+
+        _logger.LogInformation("---------------------------------------------------------------------------");
     }
 
-    private void ProcessTranscription(string text, float confidence, bool isFinal)
+    private TranscriptionCommand GetCommand(string text, bool isFinal)
     {
-        if (!isFinal)
+        return text.ToLower() switch
         {
-            _pipeStreamWriter?.WriteLine(text);
+            "start recording" when isFinal && State == RecordingState.Idle => TranscriptionCommand.StartRecording,
+            "stop recording" when isFinal && State == RecordingState.Recording => TranscriptionCommand.StopRecording,
+            _ when State == RecordingState.Recording => TranscriptionCommand.ProcessInput,
+            _ => TranscriptionCommand.None
+        };
+    }
+
+    private async Task StartTranscriptionAsync()
+    {
+        await _displayWindow.ShowAsync().ConfigureAwait(false);
+        await _timestampedFileHandler.CreateAsync().ConfigureAwait(false);
+    }
+
+    private async Task ProcessInputAsync(string text, bool isFinal)
+    {
+        if (isFinal)
+        {
+            await _displayWindow.WriteLineAsync(text).ConfigureAwait(false);
+            await _timestampedFileHandler.SaveLineAsync(text).ConfigureAwait(false);
             return;
         }
 
-        _recognizedText.AppendLine(text);
-        _pipeStreamWriter?.WriteLine($"[F]{text}");
-        _logger.LogInformation("Transcribed: {text}; Confidence {confidence}", text, confidence);
+        await _displayWindow.RewriteSameLine(text).ConfigureAwait(false);
     }
 
-    private void EndTranscription()
+    private async Task EndTranscriptionAsync()
     {
-        CloseConsole();
-        SaveRecognizedText();
-        _logger.LogInformation("Transcription ended...");
+        await _displayWindow.HideAsync().ConfigureAwait(false);
+        await _timestampedFileHandler.CloseAsync().ConfigureAwait(false);
+        _logger.LogInformation("Transcription ended.");
     }
+}
 
-    private void StartTranscription()
-    {
-        _logger.LogInformation("Start transcribing speech to text...");
-        _recognizedText.Clear();
-        OpenConsole();
-    }
-
-    private void OpenConsole()
-    {
-        var psi = new ProcessStartInfo
-        {
-            FileName = "cmd.exe",
-            Arguments = "/c start owl_display.exe",
-            UseShellExecute = false,
-            CreateNoWindow = false,
-        };
-        Process.Start(psi);
-
-        var namedPipeClient = new NamedPipeClientStream(".", "OwlPipe", PipeDirection.Out);
-        namedPipeClient.Connect();
-        _pipeStreamWriter = new(namedPipeClient) { AutoFlush = true };
-    }
-
-    private void CloseConsole()
-    {
-        if (_pipeStreamWriter == null) return;
-        _pipeStreamWriter.Flush();
-        _pipeStreamWriter.Dispose();
-        _pipeStreamWriter = null;
-    }
-
-    private void SaveRecognizedText()
-    {
-        Directory.CreateDirectory("recordings");
-        var fileName = $"recordings/{DateTimeOffset.Now:yyyyMMdd_HHmmss}.txt";
-        File.WriteAllText(fileName, _recognizedText.ToString());
-        _logger.LogInformation("Recognized text saved to file: {file}", fileName);
-    }
+public enum TranscriptionCommand
+{
+    None,
+    StartRecording,
+    StopRecording,
+    ProcessInput
 }

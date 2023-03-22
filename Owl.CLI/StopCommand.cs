@@ -17,24 +17,8 @@ internal class StopCommand : ChildCommand
     protected override bool TryExecute()
     {
         Console.WriteLine($"Stopping '{ServiceName}' process...");
-        StopService();
-        return true;
-    }
-
-    private static void StopService()
-    {
-        try
-        {
-            foreach (var process in Process.GetProcessesByName(ServiceName))
-            {
-                process.Kill();
-            }
-
-            Console.WriteLine($"'{ServiceName}' process stopped.");
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error stopping '{ServiceName}' process: {ex.Message}");
-        }
+        var hasStopped = ProcessHelper.TryStopProcess(ServiceName);
+        ExitCode = hasStopped ? ExitCode.Success : ExitCode.InternalError;
+        return hasStopped;
     }
 }

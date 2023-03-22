@@ -1,5 +1,3 @@
-using System.IO;
-
 using Timer = System.Threading.Timer;
 
 namespace Owl.Service;
@@ -11,22 +9,26 @@ public class Worker : BackgroundService
     private readonly StreamHandler _streamHandler;
     private readonly TranscriptionHandler _transcriptionHandler;
 
-    private readonly NoiseProvider _noiseProvider;
     private static Timer? _resetStreamTimer;
-    private RecordingState _recordingState = RecordingState.Idle;
 
-
-    public Worker(IConfiguration configuration, ILogger<Worker> logger)
+    public Worker(IConfiguration configuration, ILoggerFactory loggerFactory)
     {
-        _logger = logger;
+        _logger = loggerFactory.CreateLogger<Worker>();
         try
         {
-            _logger.LogInformation("Creating Worker...");
+            _logger.LogInformation("""
+
+                                    ---------------------------------------------------------------------------
+                                    Creating Worker...
+                                    ---------------------------------------------------------------------------
+                                    """);
 
             _audioRecorder = new() { WaveFormat = new(16000, 1) };
-            _noiseProvider = new(_audioRecorder);
-            _streamHandler = new(configuration, _audioRecorder, logger);
-            _transcriptionHandler = new(logger);
+            _streamHandler = new(configuration, loggerFactory);
+            var consoleConnection = new ConsoleHandler(loggerFactory);
+            var displayWindow = new DisplayWindow(consoleConnection, loggerFactory);
+            var fileHandler = new TimestampedFileHandler("recordings", loggerFactory);
+            _transcriptionHandler = new(displayWindow, fileHandler, loggerFactory);
 
             _logger.LogInformation("Worker created.");
         }
@@ -37,12 +39,16 @@ public class Worker : BackgroundService
         }
     }
 
+    private bool _isDisposed;
     public override void Dispose()
     {
+        if (_isDisposed) return;
         base.Dispose();
+        _resetStreamTimer?.Dispose();
         _audioRecorder.StopRecording();
         _audioRecorder.Dispose();
-        _streamHandler.Dispose();
+        _streamHandler.DisposeAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+        _isDisposed = true;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -50,42 +56,55 @@ public class Worker : BackgroundService
         try
         {
             _logger.LogInformation("Starting Worker...");
-
             await _streamHandler.ConfigureAsync();
-
-            stoppingToken.Register(_audioRecorder.StopRecording);
-            
             _audioRecorder.DataAvailable += async (_, args) => await _streamHandler.WriteAudioDataAsync(args.Buffer, args.BytesRecorded);
-            
-            StartDataProcessing(stoppingToken);
-            _audioRecorder.StartRecording();
 
-            StartResetStreamTimer();
+            StartDataProcessingThread(stoppingToken);
+            _audioRecorder.StartRecording();
 
             _logger.LogInformation("Worker started.");
         }
         catch (Exception e)
         {
-            _logger.LogError(e, "Failed to execute Worker.");
+            _logger.LogError(e, "Failed to start Worker.");
             throw;
+        }
+
+        _ = ResetStreamLoop(stoppingToken);
+    }
+
+    private async Task ResetStreamLoop(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(240), cancellationToken);
+            if (cancellationToken.IsCancellationRequested) return;
+
+            await ResetAsync();
         }
     }
 
-    private void StartResetStreamTimer()
+    private async Task ResetAsync()
     {
-        _resetStreamTimer = new(ResetStreamAsync, null, TimeSpan.FromSeconds(240), TimeSpan.FromSeconds(240));
+        try
+        {
+            _logger.LogInformation("Resetting stream...");
+            _audioRecorder.StopRecording();
+            var previousState = _transcriptionHandler.State;
+            _transcriptionHandler.State = RecordingState.Resetting;
+            await _streamHandler.ResetStreamAsync();
+            _transcriptionHandler.State = previousState;
+            _audioRecorder.StartRecording();
+            _logger.LogInformation("Reset ended.");
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "An error occurred while resetting the stream.");
+        }
     }
 
-    private async void ResetStreamAsync(object? _)
-    {
-        var previousState = _recordingState;
-        _recordingState = RecordingState.Resetting;
-        await _streamHandler.ResetStreamAsync();
-        _recordingState = previousState;
-    }
 
-
-    private void StartDataProcessing(CancellationToken cancellationToken)
+        private void StartDataProcessingThread(CancellationToken cancellationToken)
     {
         _ = Task.Run(async () =>
         {
@@ -93,6 +112,7 @@ public class Worker : BackgroundService
             {
                 _logger.LogInformation("Listening...");
                 await ProcessAudioDataAsync(cancellationToken);
+                _logger.LogInformation("Stopped listening.");
             }
             catch (Exception e)
             {
@@ -107,29 +127,26 @@ public class Worker : BackgroundService
         var responseStream = _streamHandler.GetResponseStream();
         while (await responseStream.MoveNextAsync(cancellationToken))
         {
-            await ProcessCurrentResponseStreamAsync(responseStream);
+            await ProcessCurrentResponseStream(responseStream);
         }
     }
 
-    private async Task ProcessCurrentResponseStreamAsync(IAsyncEnumerator<StreamingRecognizeResponse> responseStream)
+    private async Task ProcessCurrentResponseStream(IAsyncEnumerator<StreamingRecognizeResponse> responseStream)
     {
         foreach (var result in responseStream.Current.Results)
         {
-            ProcessResult(result);
+            await ProcessResult(result);
+        }
+    }
+
+    private async Task ProcessResult(StreamingRecognitionResult result)
+    {
+        var alternatives = result.Alternatives.OrderByDescending(i => i.Confidence).ToArray();
+        foreach (var alternative in alternatives)
+        {
+            _logger.LogInformation("{type}: {text}, Confidence: {confidence:0.##}%", result.IsFinal ? "Final" : "Alternative", alternative.Transcript.Trim(), alternative.Confidence * 100.0);
         }
 
-        await SendNoiseAsync();
-    }
-
-    private async Task SendNoiseAsync()
-    {
-        if (!_noiseProvider.TryGenerateNoise(out var noiseBuffer, out var noiseBufferSize)) return;
-        await _streamHandler.WriteAudioDataAsync(noiseBuffer, noiseBufferSize);
-    }
-
-    private void ProcessResult(StreamingRecognitionResult result)
-    {
-        var alternative = result.Alternatives.OrderByDescending(i => i.Confidence).First();
-        _transcriptionHandler.Handle(ref _recordingState, alternative.Transcript.Trim(), alternative.Confidence, result.IsFinal);
+        await _transcriptionHandler.HandleAsync(alternatives.First().Transcript.Trim(), result.IsFinal);
     }
 }
