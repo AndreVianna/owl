@@ -1,6 +1,6 @@
 namespace Owl.Service;
 
-public interface IDisplayWindow
+public interface IConsoleWindow
 {
     Task ShowAsync();
     Task HideAsync();

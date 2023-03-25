@@ -4,6 +4,5 @@ public enum RecordingState
 {
     Idle,
     Recording,
-    Processing,
-    Resetting
+    Processing
 }

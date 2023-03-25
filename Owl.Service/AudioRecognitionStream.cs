@@ -1,16 +1,16 @@
 namespace Owl.Service;
 
-public sealed class StreamHandler : IStreamHandler
+public sealed class AudioRecognitionStream : IAudioRecognitionStream
 {
     private SpeechClient.StreamingRecognizeStream _stream;
     private readonly IConfiguration _configuration;
-    private readonly ILogger<StreamHandler> _logger;
+    private readonly ILogger<AudioRecognitionStream> _logger;
 
 
-    public StreamHandler(IConfiguration configuration, ILoggerFactory loggerFactory)
+    public AudioRecognitionStream(IConfiguration configuration, ILoggerFactory loggerFactory)
     {
         _configuration = configuration;
-        _logger = loggerFactory.CreateLogger<StreamHandler>();
+        _logger = loggerFactory.CreateLogger<AudioRecognitionStream>();
         _stream = CreateSpeechClient().StreamingRecognize();
     }
 
@@ -25,16 +25,6 @@ public sealed class StreamHandler : IStreamHandler
                     Encoding = RecognitionConfig.Types.AudioEncoding.Linear16,
                     SampleRateHertz = 16000,
                     LanguageCode = "en-US",
-                    //UseEnhanced = true,
-                    //Model = "command_and_search",
-                    //Model = "latest_short",
-                    //SpeechContexts =
-                    //{
-                    //    new SpeechContext
-                    //    {
-                    //        Phrases = { "start recording", "stop recording" },
-                    //    }
-                    //}
                 },
                 InterimResults = true,
                 SingleUtterance = false
@@ -43,7 +33,7 @@ public sealed class StreamHandler : IStreamHandler
     }
 
     private bool _isResetting;
-    public async Task ResetStreamAsync()
+    public async Task ResetAsync()
     {
         _logger.LogInformation("Resetting stream...");
         try
@@ -62,7 +52,7 @@ public sealed class StreamHandler : IStreamHandler
         }
     }
 
-    public async Task WriteAudioDataAsync(byte[] buffer, int count)
+    public async Task SendAudioAsync(byte[] buffer, int count)
     {
         var audioData = ByteString.CopyFrom(buffer, 0, count);
         await _stream.WriteAsync(new() { AudioContent = audioData }).ConfigureAwait(false);

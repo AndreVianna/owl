@@ -15,3 +15,4 @@ global using Newtonsoft.Json.Linq;
 global using Owl.Service;
 global using Serilog;
 global using Serilog.Events;
+global using ILogger = Microsoft.Extensions.Logging.ILogger;

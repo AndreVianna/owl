@@ -1,152 +1,46 @@
-using Timer = System.Threading.Timer;
-
 namespace Owl.Service;
 
 public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
-    private readonly WaveInEvent _audioRecorder;
-    private readonly StreamHandler _streamHandler;
-    private readonly TranscriptionHandler _transcriptionHandler;
+    private readonly ITranscriptionProvider _transcriptionProvider;
 
-    private static Timer? _resetStreamTimer;
-
-    public Worker(IConfiguration configuration, ILoggerFactory loggerFactory)
+    public Worker(IConfiguration configuration, IRecorder recorder, ILoggerFactory loggerFactory, ITranscriptionProvider? provider = null)
     {
         _logger = loggerFactory.CreateLogger<Worker>();
-        try
+        _logger.LogDebug("Creating worker...");
+
+        var transcriptionProviderType = configuration["TranscriptionProvider:Type"];
+        _transcriptionProvider = provider ?? transcriptionProviderType switch
         {
-            _logger.LogInformation("""
-
-                                    ---------------------------------------------------------------------------
-                                    Creating Worker...
-                                    ---------------------------------------------------------------------------
-                                    """);
-
-            _audioRecorder = new() { WaveFormat = new(16000, 1) };
-            _streamHandler = new(configuration, loggerFactory);
-            var consoleConnection = new ConsoleHandler(loggerFactory);
-            var displayWindow = new DisplayWindow(consoleConnection, loggerFactory);
-            var fileHandler = new TimestampedFileHandler("recordings", loggerFactory);
-            _transcriptionHandler = new(displayWindow, fileHandler, loggerFactory);
-
-            _logger.LogInformation("Worker created.");
-        }
-        catch (Exception e)
-        {
-            _logger.LogError(e, "Failed to create Worker.");
-            throw;
-        }
+            "Google" => new GoogleTranscriptionProvider(configuration, recorder, loggerFactory),
+            "OpenAI" => new OpenAiTranscriptionProvider(configuration, recorder),
+            _ => throw new NotImplementedException($"Transcription provider '{transcriptionProviderType}' is not supported.")
+        };
+        _logger.LogDebug("Worker created.");
     }
 
-    private bool _isDisposed;
-    public override void Dispose()
+    protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (_isDisposed) return;
-        base.Dispose();
-        _resetStreamTimer?.Dispose();
-        _audioRecorder.StopRecording();
-        _audioRecorder.Dispose();
-        _streamHandler.DisposeAsync().ConfigureAwait(false).GetAwaiter().GetResult();
-        _isDisposed = true;
+        _logger.LogDebug("Executing worker...");
+        InitializeSpeechRecognition(stoppingToken);
+        _logger.LogDebug("Worker executed.");
+        return Task.CompletedTask;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    private void InitializeSpeechRecognition(CancellationToken cancellationToken)
     {
-        try
+        var waveIn = new WaveInEvent { WaveFormat = new WaveFormat(16000, 1) };
+
+        _transcriptionProvider.InitializeAsync();
+        waveIn.DataAvailable += async (_, args) => await _transcriptionProvider.ProcessAudioAsync(args.Buffer, args.BytesRecorded);
+
+        waveIn.StartRecording();
+
+        cancellationToken.Register(() =>
         {
-            _logger.LogInformation("Starting Worker...");
-            await _streamHandler.ConfigureAsync();
-            _audioRecorder.DataAvailable += async (_, args) => await _streamHandler.WriteAudioDataAsync(args.Buffer, args.BytesRecorded);
-
-            StartDataProcessingThread(stoppingToken);
-            _audioRecorder.StartRecording();
-
-            _logger.LogInformation("Worker started.");
-        }
-        catch (Exception e)
-        {
-            _logger.LogError(e, "Failed to start Worker.");
-            throw;
-        }
-
-        _ = ResetStreamLoop(stoppingToken);
-    }
-
-    private async Task ResetStreamLoop(CancellationToken cancellationToken)
-    {
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            await Task.Delay(TimeSpan.FromSeconds(240), cancellationToken);
-            if (cancellationToken.IsCancellationRequested) return;
-
-            await ResetAsync();
-        }
-    }
-
-    private async Task ResetAsync()
-    {
-        try
-        {
-            _logger.LogInformation("Resetting stream...");
-            _audioRecorder.StopRecording();
-            var previousState = _transcriptionHandler.State;
-            _transcriptionHandler.State = RecordingState.Resetting;
-            await _streamHandler.ResetStreamAsync();
-            _transcriptionHandler.State = previousState;
-            _audioRecorder.StartRecording();
-            _logger.LogInformation("Reset ended.");
-        }
-        catch (Exception e)
-        {
-            _logger.LogError(e, "An error occurred while resetting the stream.");
-        }
-    }
-
-
-        private void StartDataProcessingThread(CancellationToken cancellationToken)
-    {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                _logger.LogInformation("Listening...");
-                await ProcessAudioDataAsync(cancellationToken);
-                _logger.LogInformation("Stopped listening.");
-            }
-            catch (Exception e)
-            {
-                _logger.LogError(e, "An error happened while listening.");
-                throw;
-            }
-        }, cancellationToken);
-    }
-
-    private async Task ProcessAudioDataAsync(CancellationToken cancellationToken)
-    {
-        var responseStream = _streamHandler.GetResponseStream();
-        while (await responseStream.MoveNextAsync(cancellationToken))
-        {
-            await ProcessCurrentResponseStream(responseStream);
-        }
-    }
-
-    private async Task ProcessCurrentResponseStream(IAsyncEnumerator<StreamingRecognizeResponse> responseStream)
-    {
-        foreach (var result in responseStream.Current.Results)
-        {
-            await ProcessResult(result);
-        }
-    }
-
-    private async Task ProcessResult(StreamingRecognitionResult result)
-    {
-        var alternatives = result.Alternatives.OrderByDescending(i => i.Confidence).ToArray();
-        foreach (var alternative in alternatives)
-        {
-            _logger.LogInformation("{type}: {text}, Confidence: {confidence:0.##}%", result.IsFinal ? "Final" : "Alternative", alternative.Transcript.Trim(), alternative.Confidence * 100.0);
-        }
-
-        await _transcriptionHandler.HandleAsync(alternatives.First().Transcript.Trim(), result.IsFinal);
+            waveIn.StopRecording();
+            waveIn.Dispose();
+        });
     }
 }

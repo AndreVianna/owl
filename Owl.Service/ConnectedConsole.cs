@@ -1,16 +1,14 @@
-using ILogger = Microsoft.Extensions.Logging.ILogger;
-
 namespace Owl.Service;
 
-public class ConsoleHandler : IConsoleHandler
+public sealed class ConnectedConsole : IConnectedConsole
 {
-    private readonly ILogger<ConsoleHandler> _logger;
+    private readonly ILogger<ConnectedConsole> _logger;
     private NamedPipeClientStream? _namedPipeClient;
     private StreamWriter? _pipeStreamWriter;
 
-    public ConsoleHandler(ILoggerFactory loggerFactory)
+    public ConnectedConsole(ILoggerFactory loggerFactory)
     {
-        _logger = loggerFactory.CreateLogger<ConsoleHandler>();
+        _logger = loggerFactory.CreateLogger<ConnectedConsole>();
     }
 
     public async Task ConnectAsync()
@@ -35,9 +33,24 @@ public class ConsoleHandler : IConsoleHandler
 
     private void StartConsoleProcess()
     {
-        var hasStarted = ProcessHelper.TryStartProcess("owl_display");
-        if (!hasStarted) throw new SystemException("Failed to start 'owl_display' process.");
-        _logger.LogInformation("'owl_display' process started.");
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "cmd.exe",
+                Arguments = $"/c start owl_display.exe",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            if (Process.Start(psi) == null) throw new SystemException("Failed to start process.");
+
+            _logger.LogDebug("'owl_display' process started.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error starting 'owl_display' process.");
+            throw;
+        }
     }
 
     private async Task ConnectToConsoleAsync()
@@ -47,11 +60,22 @@ public class ConsoleHandler : IConsoleHandler
         _pipeStreamWriter = new StreamWriter(_namedPipeClient) { AutoFlush = true };
     }
 
-    private static void StopConsoleProcess()
+    private void StopConsoleProcess()
     {
-        var hasStopped = ProcessHelper.TryStopProcess("owl_display");
-        if (!hasStopped) throw new SystemException("Failed to stop 'owl_display' process.");
-        Console.WriteLine("'owl_display' process stopped.");
+        try
+        {
+            foreach (var process in Process.GetProcessesByName("owl_display"))
+            {
+                process.Kill();
+            }
+
+            _logger.LogDebug("'owl_display' process stopped.");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error stopping 'owl_display' process.");
+            throw;
+        }
     }
 
     private async Task DisconnectFromConsoleAsync()
