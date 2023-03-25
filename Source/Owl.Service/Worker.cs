@@ -14,7 +14,7 @@ public class Worker : BackgroundService
         _transcriptionProvider = provider ?? transcriptionProviderType switch
         {
             "Google" => new GoogleTranscriptionProvider(configuration, recorder, loggerFactory),
-            "OpenAI" => new OpenAiTranscriptionProvider(configuration, recorder),
+            "OpenAI" => new OpenAiTranscriptionProvider(configuration, recorder, loggerFactory),
             _ => throw new NotImplementedException($"Transcription provider '{transcriptionProviderType}' is not supported.")
         };
         _logger.LogDebug("Worker created.");
