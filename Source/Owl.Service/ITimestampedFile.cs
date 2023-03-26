@@ -4,5 +4,5 @@ public interface ITimestampedFile
 {
     void Open();
     void AppendLine(string text);
-    Task SaveAsync();
+    Task SaveAsync(CancellationToken cancellationToken);
 }

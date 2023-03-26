@@ -14,7 +14,29 @@ public class Recorder : IRecorder
         _file = file;
     }
 
-    public async Task RecordAsync(string text)
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        if (_recordingState != RecordingState.Idle) return;
+        _recordingState = RecordingState.Starting;
+        _logger.LogInformation("---------------------------------------------------------------------------");
+        _logger.LogInformation("Start recording...");
+        _file.Open();
+        await _window.ShowAsync(cancellationToken);
+        _recordingState = RecordingState.Recording;
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        if (_recordingState != RecordingState.Recording) return;
+        _recordingState = RecordingState.Stopping;
+        await _file.SaveAsync(cancellationToken);
+        await _window.DisposeAsync();
+        _logger.LogInformation("Recording stopped...");
+        _logger.LogInformation("---------------------------------------------------------------------------");
+        _recordingState = RecordingState.Idle;
+    }
+
+    public async Task RecordAsync(string text, CancellationToken cancellationToken)
     {
         if (_recordingState != RecordingState.Recording) return;
         _file.AppendLine(text);
@@ -22,31 +44,21 @@ public class Recorder : IRecorder
         _logger.LogInformation("Recorded: {text}", text);
     }
 
-    public async Task DisplayAsync(string text)
+    public async Task IgnoreAsync(string text, CancellationToken cancellationToken)
     {
         if (_recordingState != RecordingState.Recording) return;
-        await _window.RewriteSameLine(text);
+        await _window.RewriteAsync(text);
     }
 
-    public async Task StopAsync()
+    public void Pause()
     {
         if (_recordingState != RecordingState.Recording) return;
-        _recordingState = RecordingState.Processing;
-        await _window.HideAsync();
-        await _file.SaveAsync();
-        _logger.LogInformation("Recording stopped...");
-        _logger.LogInformation("---------------------------------------------------------------------------");
-        _recordingState = RecordingState.Idle;
+        _recordingState = RecordingState.Paused;
     }
 
-    public async Task StartAsync()
+    public void Resume()
     {
-        if (_recordingState != RecordingState.Idle) return;
-        _recordingState = RecordingState.Processing;
-        _logger.LogInformation("---------------------------------------------------------------------------");
-        _logger.LogInformation("Start recording...");
-        _file.Open();
-        await _window.ShowAsync();
+        if (_recordingState != RecordingState.Paused) return;
         _recordingState = RecordingState.Recording;
     }
 }

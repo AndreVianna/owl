@@ -7,16 +7,21 @@ Host.CreateDefaultBuilder()
         services.AddSingleton<IConnectedConsole, ConnectedConsole>();
         services.AddSingleton<ITimestampedFile, TimestampedFile>();
         services.AddSingleton<IRecorder, Recorder>();
+        services.AddSingleton<ITranscriptionProvider>(provider =>
+        {
+            var configuration = provider.GetRequiredService<IConfiguration>();
+            var recorder = provider.GetRequiredService<IRecorder>();
+            var loggerFactory = provider.GetRequiredService<ILoggerFactory>();
+            var type = configuration["TranscriptionProvider:Type"];
+            return type switch
+            {
+                "Google" => new GoogleTranscriptionProvider(configuration, recorder, loggerFactory),
+                _ => throw new NotImplementedException($"Transcription provider '{type}' is not supported.")
+            };
+        });
+
         services.AddHostedService<Worker>();
     })
-    .UseSerilog((_, loggerConfiguration) => loggerConfiguration
-            .MinimumLevel.Information()
-            .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
-            .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
-            .Enrich.FromLogContext()
-            .WriteTo.File("logs/owl_.log",
-                rollingInterval: RollingInterval.Hour,
-                retainedFileCountLimit: 31,
-                outputTemplate: "[{Timestamp:yyyy-MM-ddTHH:mm:ss.ffffff}] {Message}{NewLine}{Exception}"))
+    .UseSerilog(configureLogger: (builder, config) => config.ReadFrom.Configuration(builder.Configuration))
     .Build()
     .Run();

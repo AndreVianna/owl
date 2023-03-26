@@ -2,8 +2,10 @@ namespace Owl.Service;
 
 public interface IRecorder
 {
-    Task StartAsync();
-    Task RecordAsync(string text);
-    Task DisplayAsync(string text);
-    Task StopAsync();
+    Task StartAsync(CancellationToken cancellationToken);
+    void Pause();
+    void Resume();
+    Task RecordAsync(string text, CancellationToken cancellationToken);
+    Task IgnoreAsync(string text, CancellationToken cancellationToken);
+    Task StopAsync(CancellationToken cancellationToken);
 }

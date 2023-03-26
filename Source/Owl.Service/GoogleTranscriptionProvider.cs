@@ -4,7 +4,9 @@ public class GoogleTranscriptionProvider : TranscriptionProvider
 {
     private readonly ILogger<GoogleTranscriptionProvider> _logger;
     private readonly IConfiguration _configuration;
-    private readonly SpeechClient.StreamingRecognizeStream _stream;
+    private SpeechClient.StreamingRecognizeStream _stream;
+    //private readonly WaveInEvent _waveIn;
+    //private readonly NoiseGenerator _noiseGenerator;
 
     public GoogleTranscriptionProvider(IConfiguration configuration, IRecorder recorder, ILoggerFactory loggerFactory)
         : base(recorder)
@@ -12,6 +14,8 @@ public class GoogleTranscriptionProvider : TranscriptionProvider
         _logger = loggerFactory.CreateLogger<GoogleTranscriptionProvider>();
         _configuration = configuration;
         _stream = CreateSpeechClient().StreamingRecognize();
+        //_waveIn = new WaveInEvent { WaveFormat = new WaveFormat(16000, 1) };
+        //_noiseGenerator = new NoiseGenerator(_waveIn, _stream, loggerFactory);
     }
 
     private SpeechClient CreateSpeechClient()
@@ -30,7 +34,25 @@ public class GoogleTranscriptionProvider : TranscriptionProvider
         return json.ToString();
     }
 
-    public override async Task InitializeAsync()
+    public override async Task InitializeAsync(CancellationToken cancellationToken)
+    {
+        await ConfigureStream();
+        var waveIn = new WaveInEvent { WaveFormat = new WaveFormat(16000, 1) };
+        waveIn.DataAvailable += async (_, args) => await ProcessAudioAsync(args.Buffer, args.BytesRecorded);
+
+        cancellationToken.Register(() =>
+        {
+            waveIn.StopRecording();
+            waveIn.Dispose();
+        });
+
+        waveIn.StartRecording();
+
+        StartDataProcessingThread(cancellationToken);
+        StartResetStreamLoop(cancellationToken);
+    }
+
+    private async Task ConfigureStream()
     {
         await _stream.WriteAsync(new()
         {
@@ -46,7 +68,6 @@ public class GoogleTranscriptionProvider : TranscriptionProvider
                 SingleUtterance = false
             },
         });
-        StartDataProcessingThread();
     }
 
 
@@ -56,15 +77,51 @@ public class GoogleTranscriptionProvider : TranscriptionProvider
         await _stream.WriteAsync(new() { AudioContent = audio }).ConfigureAwait(false);
     }
 
-    private void StartDataProcessingThread()
+    private void StartResetStreamLoop(CancellationToken cancellationToken)
     {
-        _ = Task.Run(async () =>
+        Task.Run(async () =>
+        {
+            await Task.Delay(500, cancellationToken);
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(240), cancellationToken);
+                if (cancellationToken.IsCancellationRequested) return;
+
+                await ResetStreamAsync();
+            }
+        }, cancellationToken);
+    }
+
+    private bool _isResetting;
+
+    private async Task ResetStreamAsync()
+    {
+        _logger.LogDebug("Resetting stream...");
+        try
+        {
+            if (_isResetting) return;
+            _isResetting = true;
+            _stream = CreateSpeechClient().StreamingRecognize();
+            await ConfigureStream().ConfigureAwait(false);
+            _logger.LogDebug("Stream reset.");
+            _isResetting = false;
+        }
+        catch (Exception e)
+        {
+            _logger.LogError(e, "Failed to reset stream.");
+            throw;
+        }
+    }
+
+    private void StartDataProcessingThread(CancellationToken cancellationToken)
+    {
+        Task.Run(async () =>
         {
             try
             {
-                await Task.Delay(500);
+                await Task.Delay(500, cancellationToken);
                 _logger.LogInformation("Start listening.");
-                await ProcessAudioDataAsync();
+                await ProcessAudioDataAsync(cancellationToken).ConfigureAwait(false);
                 _logger.LogInformation("Stopped listening.");
             }
             catch (Exception ex)
@@ -72,15 +129,16 @@ public class GoogleTranscriptionProvider : TranscriptionProvider
                 _logger.LogError(ex, "An error happened while listening.");
                 throw;
             }
-        });
+        }, cancellationToken);
     }
 
-    private async Task ProcessAudioDataAsync()
+    private async Task ProcessAudioDataAsync(CancellationToken cancellationToken)
     {
         var responseStream = GetResponseStream();
-        while (await responseStream.MoveNextAsync())
+        while (await responseStream.MoveNextAsync(cancellationToken))
         {
-            await ProcessResponseStream(responseStream);
+            await ProcessResponseStreamAsync(responseStream, cancellationToken);
+            //await _noiseGenerator.GenerateNoiseAsync();
         }
     }
 
@@ -89,15 +147,15 @@ public class GoogleTranscriptionProvider : TranscriptionProvider
         return _stream.GetResponseStream();
     }
 
-    private async Task ProcessResponseStream(IAsyncEnumerator<StreamingRecognizeResponse> responseStream)
+    private async Task ProcessResponseStreamAsync(IAsyncEnumerator<StreamingRecognizeResponse> responseStream, CancellationToken cancellationToken)
     {
         foreach (var result in responseStream.Current.Results)
         {
-            await ProcessResult(result);
+            await ProcessResultAsync(result, cancellationToken);
         }
     }
 
-    private async Task ProcessResult(StreamingRecognitionResult result)
+    private async Task ProcessResultAsync(StreamingRecognitionResult result, CancellationToken cancellationToken)
     {
         var alternatives = result.Alternatives.OrderByDescending(i => i.Confidence).ToArray();
         foreach (var alternative in alternatives)
@@ -105,6 +163,6 @@ public class GoogleTranscriptionProvider : TranscriptionProvider
             _logger.LogDebug("{type}: {text}, Confidence: {confidence:0.##}%", result.IsFinal ? "Final" : "Alternative", alternative.Transcript.Trim(), alternative.Confidence * 100.0);
         }
 
-        await TranscribeAsync(alternatives.First().Transcript.Trim(), result.IsFinal);
+        await TranscribeAsync(alternatives.First().Transcript.Trim(), result.IsFinal, cancellationToken);
     }
 }

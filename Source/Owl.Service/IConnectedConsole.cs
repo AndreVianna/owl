@@ -1,10 +1,8 @@
 namespace Owl.Service;
 
-public interface IConnectedConsole
+public interface IConnectedConsole : IAsyncDisposable
 {
-    Task ConnectAsync();
+    Task ConnectAsync(CancellationToken cancellationToken);
 
     Task SendLineAsync(string line);
-
-    Task DisconnectAsync();
 }

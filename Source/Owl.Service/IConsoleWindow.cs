@@ -1,9 +1,8 @@
 namespace Owl.Service;
 
-public interface IConsoleWindow
+public interface IConsoleWindow : IAsyncDisposable
 {
-    Task ShowAsync();
-    Task HideAsync();
-    Task RewriteSameLine(string line);
+    Task ShowAsync(CancellationToken cancellationToken);
+    Task RewriteAsync(string line);
     Task WriteLineAsync(string line);
 }

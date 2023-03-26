@@ -3,37 +3,30 @@ namespace Owl.Service;
 public class Worker : BackgroundService
 {
     private readonly ILogger<Worker> _logger;
-    private readonly ITranscriptionProvider _transcriptionProvider;
+    private readonly ITranscriptionProvider _provider;
 
-    public Worker(IConfiguration configuration, IRecorder recorder, ILoggerFactory loggerFactory, ITranscriptionProvider? provider = null)
+    public Worker(ILoggerFactory loggerFactory, ITranscriptionProvider provider)
     {
         _logger = loggerFactory.CreateLogger<Worker>();
-        _logger.LogDebug("Creating worker...");
-
-        var transcriptionProviderType = configuration["TranscriptionProvider:Type"];
-        _transcriptionProvider = provider ?? transcriptionProviderType switch
-        {
-            "Google" => new GoogleTranscriptionProvider(configuration, recorder, loggerFactory),
-            "OpenAI" => new OpenAiTranscriptionProvider(configuration, recorder, loggerFactory),
-            _ => throw new NotImplementedException($"Transcription provider '{transcriptionProviderType}' is not supported.")
-        };
+        _provider = provider;
         _logger.LogDebug("Worker created.");
     }
 
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogDebug("Executing worker...");
-        InitializeSpeechRecognition(stoppingToken);
-        _logger.LogDebug("Worker executed.");
-        return Task.CompletedTask;
+        _logger.LogDebug("Initializing worker...");
+        await InitializeSpeechRecognitionAsync(stoppingToken);
+        _logger.LogDebug("Worker initialized.");
     }
 
-    private void InitializeSpeechRecognition(CancellationToken cancellationToken)
+    private async Task InitializeSpeechRecognitionAsync(CancellationToken cancellationToken)
     {
         var waveIn = new WaveInEvent { WaveFormat = new WaveFormat(16000, 1) };
+        var waveProvider = new BufferedWaveProvider(waveIn.WaveFormat);
+        var silenceDetector = new SilenceDetectingSampleProvider(waveProvider.ToSampleProvider());
 
-        _transcriptionProvider.InitializeAsync();
-        waveIn.DataAvailable += async (_, args) => await _transcriptionProvider.ProcessAudioAsync(args.Buffer, args.BytesRecorded);
+        await _provider.InitializeAsync(cancellationToken);
+        waveIn.DataAvailable += async (_, args) => await _provider.ProcessAudioAsync(args.Buffer, args.BytesRecorded);
 
         waveIn.StartRecording();
 

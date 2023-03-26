@@ -3,6 +3,8 @@ namespace Owl.Service;
 public enum RecordingState
 {
     Idle,
+    Starting,
     Recording,
-    Processing
+    Paused,
+    Stopping,
 }

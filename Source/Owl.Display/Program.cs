@@ -8,16 +8,24 @@ var previousText = string.Empty;
 while (reader.ReadLine() is { } line)
 {
     if (string.IsNullOrWhiteSpace(line)) continue;
+
     var isFinal = line.StartsWith("[F]");
-    line = line.Replace("[F]", string.Empty);
+    line = isFinal ? line[3..] : line;
+    if (!isFinal && line.Length < previousText.Length) continue;
+
+    previousText = UpdateConsole(line, previousText, isFinal);
+}
+
+static string UpdateConsole(string line, string previousText1, bool isFinal)
+{
+    var text = line.PadRight(Math.Max(previousText1.Length, line.Length));
     Console.SetCursorPosition(0, Console.CursorTop);
-    if (!isFinal && line == previousText) continue;
-    previousText = line;
-    var padSize = Math.Max(previousText.Length, line.Length);
-    Console.Write(line.PadRight(padSize, ' '));
-    if (isFinal)
+    if (!isFinal)
     {
-        Console.WriteLine();
-        previousText = string.Empty;
+        Console.Write(text);
+        return line;
     }
+
+    Console.WriteLine(text);
+    return string.Empty;
 }

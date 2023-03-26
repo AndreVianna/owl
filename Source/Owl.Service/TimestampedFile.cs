@@ -23,10 +23,10 @@ public sealed class TimestampedFile : ITimestampedFile
         _recognizedText.AppendLine(text);
     }
 
-    public async Task SaveAsync()
+    public async Task SaveAsync(CancellationToken cancellationToken)
     {
         var fileName = $"{_fileNamePrefix}_{DateTimeOffset.Now:yyyyMMdd_HHmmss}.txt";
-        await File.WriteAllTextAsync(fileName, _recognizedText.ToString());
+        await File.WriteAllTextAsync(fileName, _recognizedText.ToString(), cancellationToken);
         _logger.LogInformation("text saved to file: {file}", fileName);
     }
 }

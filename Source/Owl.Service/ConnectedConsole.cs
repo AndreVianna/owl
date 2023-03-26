@@ -11,18 +11,11 @@ public sealed class ConnectedConsole : IConnectedConsole
         _logger = loggerFactory.CreateLogger<ConnectedConsole>();
     }
 
-    public async Task ConnectAsync()
+    public async Task ConnectAsync(CancellationToken cancellationToken)
     {
         StartConsoleProcess();
-        await ConnectToConsoleAsync();
+        await ConnectToConsoleAsync(cancellationToken);
         _logger.LogInformation("Connected.");
-    }
-
-    public async Task DisconnectAsync()
-    {
-        await DisconnectFromConsoleAsync();
-        StopConsoleProcess();
-        _logger.LogInformation("Disconnected.");
     }
 
     public Task SendLineAsync(string line)
@@ -38,7 +31,7 @@ public sealed class ConnectedConsole : IConnectedConsole
             var psi = new ProcessStartInfo
             {
                 FileName = "cmd.exe",
-                Arguments = $"/c start owl_display.exe",
+                Arguments = "/c start owl_display.exe",
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
@@ -53,10 +46,10 @@ public sealed class ConnectedConsole : IConnectedConsole
         }
     }
 
-    private async Task ConnectToConsoleAsync()
+    private async Task ConnectToConsoleAsync(CancellationToken cancellationToken)
     {
         _namedPipeClient = new NamedPipeClientStream(".", "OwlPipe", PipeDirection.Out);
-        await _namedPipeClient.ConnectAsync();
+        await _namedPipeClient.ConnectAsync(cancellationToken);
         _pipeStreamWriter = new StreamWriter(_namedPipeClient) { AutoFlush = true };
     }
 
@@ -78,8 +71,10 @@ public sealed class ConnectedConsole : IConnectedConsole
         }
     }
 
-    private async Task DisconnectFromConsoleAsync()
+    private bool _disposed;
+    public async ValueTask DisposeAsync()
     {
+        if (_disposed) return;
         if (_pipeStreamWriter != null)
         {
             _pipeStreamWriter.Close();
@@ -93,5 +88,9 @@ public sealed class ConnectedConsole : IConnectedConsole
             await _namedPipeClient.DisposeAsync();
             _namedPipeClient = null;
         }
+
+        StopConsoleProcess();
+        _logger.LogInformation("Disconnected.");
+        _disposed = true;
     }
 }
