@@ -1,12 +1,11 @@
-namespace Owl.Service;
+namespace Owl.Service.Providers;
 
-public class GoogleTranscriptionProvider : TranscriptionProvider
+internal class GoogleTranscriptionProvider : TranscriptionProvider
 {
     private readonly ILogger<GoogleTranscriptionProvider> _logger;
     private readonly IConfiguration _configuration;
     private SpeechClient.StreamingRecognizeStream _stream;
-    //private readonly WaveInEvent _waveIn;
-    //private readonly NoiseGenerator _noiseGenerator;
+    private readonly NoiseGenerator _noiseGenerator;
 
     public GoogleTranscriptionProvider(IConfiguration configuration, IRecorder recorder, ILoggerFactory loggerFactory)
         : base(recorder)
@@ -14,8 +13,7 @@ public class GoogleTranscriptionProvider : TranscriptionProvider
         _logger = loggerFactory.CreateLogger<GoogleTranscriptionProvider>();
         _configuration = configuration;
         _stream = CreateSpeechClient().StreamingRecognize();
-        //_waveIn = new WaveInEvent { WaveFormat = new WaveFormat(16000, 1) };
-        //_noiseGenerator = new NoiseGenerator(_waveIn, _stream, loggerFactory);
+        _noiseGenerator = new NoiseGenerator(SoundDetector, _stream, loggerFactory);
     }
 
     private SpeechClient CreateSpeechClient()
@@ -34,22 +32,18 @@ public class GoogleTranscriptionProvider : TranscriptionProvider
         return json.ToString();
     }
 
-    public override async Task InitializeAsync(CancellationToken cancellationToken)
+
+    protected override Task OnBeforeStartAsync(CancellationToken _)
     {
-        await ConfigureStream();
-        var waveIn = new WaveInEvent { WaveFormat = new WaveFormat(16000, 1) };
-        waveIn.DataAvailable += async (_, args) => await ProcessAudioAsync(args.Buffer, args.BytesRecorded);
+        return ConfigureStream();
+    }
 
-        cancellationToken.Register(() =>
-        {
-            waveIn.StopRecording();
-            waveIn.Dispose();
-        });
-
-        waveIn.StartRecording();
-
+    protected override Task OnStartedAsync(CancellationToken cancellationToken)
+    {
         StartDataProcessingThread(cancellationToken);
         StartResetStreamLoop(cancellationToken);
+        _noiseGenerator.Start();
+        return Task.CompletedTask;
     }
 
     private async Task ConfigureStream()
@@ -71,7 +65,7 @@ public class GoogleTranscriptionProvider : TranscriptionProvider
     }
 
 
-    public override async Task ProcessAudioAsync(byte[] buffer, int count)
+    protected override async Task ProcessAudioAsync(byte[] buffer, int count)
     {
         var audio = ByteString.CopyFrom(buffer, 0, count);
         await _stream.WriteAsync(new() { AudioContent = audio }).ConfigureAwait(false);
@@ -119,7 +113,7 @@ public class GoogleTranscriptionProvider : TranscriptionProvider
         {
             try
             {
-                await Task.Delay(500, cancellationToken);
+                await Task.Delay(100, cancellationToken);
                 _logger.LogInformation("Start listening.");
                 await ProcessAudioDataAsync(cancellationToken).ConfigureAwait(false);
                 _logger.LogInformation("Stopped listening.");
@@ -134,17 +128,14 @@ public class GoogleTranscriptionProvider : TranscriptionProvider
 
     private async Task ProcessAudioDataAsync(CancellationToken cancellationToken)
     {
-        var responseStream = GetResponseStream();
+        _noiseGenerator.Stop();
+        var responseStream = _stream.GetResponseStream();
         while (await responseStream.MoveNextAsync(cancellationToken))
         {
             await ProcessResponseStreamAsync(responseStream, cancellationToken);
-            //await _noiseGenerator.GenerateNoiseAsync();
         }
-    }
 
-    private AsyncResponseStream<StreamingRecognizeResponse> GetResponseStream()
-    {
-        return _stream.GetResponseStream();
+        _noiseGenerator.Start();
     }
 
     private async Task ProcessResponseStreamAsync(IAsyncEnumerator<StreamingRecognizeResponse> responseStream, CancellationToken cancellationToken)

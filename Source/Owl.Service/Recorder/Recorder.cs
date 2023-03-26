@@ -1,6 +1,6 @@
-namespace Owl.Service;
+namespace Owl.Service.AudioRecorder;
 
-public class Recorder : IRecorder
+internal class Recorder : IRecorder
 {
     private readonly ILogger<Recorder> _logger;
     private RecordingState _recordingState = RecordingState.Idle;
@@ -36,18 +36,19 @@ public class Recorder : IRecorder
         _recordingState = RecordingState.Idle;
     }
 
-    public async Task RecordAsync(string text, CancellationToken cancellationToken)
+    public async Task RecordAsync(string text, bool save, CancellationToken cancellationToken)
     {
         if (_recordingState != RecordingState.Recording) return;
+        if (!save)
+        {
+            await _window.RewriteAsync(text);
+            _logger.LogDebug("Ignored: {text}", text);
+            return;
+        }
+
         _file.AppendLine(text);
         await _window.WriteLineAsync(text);
         _logger.LogInformation("Recorded: {text}", text);
-    }
-
-    public async Task IgnoreAsync(string text, CancellationToken cancellationToken)
-    {
-        if (_recordingState != RecordingState.Recording) return;
-        await _window.RewriteAsync(text);
     }
 
     public void Pause()

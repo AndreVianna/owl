@@ -1,26 +1,30 @@
-namespace Owl.Service;
+namespace Owl.Service.Display;
 
-public sealed class ConnectedConsole : IConnectedConsole
+internal sealed class ConsoleWindow : IConsoleWindow
 {
-    private readonly ILogger<ConnectedConsole> _logger;
+    private readonly ILogger<ConsoleWindow> _logger;
     private NamedPipeClientStream? _namedPipeClient;
     private StreamWriter? _pipeStreamWriter;
 
-    public ConnectedConsole(ILoggerFactory loggerFactory)
+    public ConsoleWindow(ILoggerFactory loggerFactory)
     {
-        _logger = loggerFactory.CreateLogger<ConnectedConsole>();
+        _logger = loggerFactory.CreateLogger<ConsoleWindow>();
     }
 
-    public async Task ConnectAsync(CancellationToken cancellationToken)
+    public Task RewriteAsync(string line) => WriteToConsoleAsync(line);
+
+    public Task WriteLineAsync(string line) => WriteToConsoleAsync($"{line}[nl]");
+
+    private Task WriteToConsoleAsync(string line)
+    {
+        return _pipeStreamWriter?.WriteLineAsync(line) ?? throw new InvalidOperationException("Console application not connected.");
+    }
+
+    public async Task ShowAsync(CancellationToken cancellationToken)
     {
         StartConsoleProcess();
         await ConnectToConsoleAsync(cancellationToken);
-        _logger.LogInformation("Connected.");
-    }
-
-    public Task SendLineAsync(string line)
-    {
-        return _pipeStreamWriter?.WriteLineAsync(line) ?? throw new InvalidOperationException("Console application not connected.");
+        _logger.LogDebug("Console windows opened.");
     }
 
 
@@ -71,26 +75,23 @@ public sealed class ConnectedConsole : IConnectedConsole
         }
     }
 
+    public void Hide()
+    {
+        _pipeStreamWriter?.Close();
+        _namedPipeClient?.Close();
+        StopConsoleProcess();
+        _logger.LogInformation("Display window closed.");
+    }
+
     private bool _disposed;
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
-        if (_pipeStreamWriter != null)
-        {
-            _pipeStreamWriter.Close();
-            await _pipeStreamWriter.DisposeAsync();
-            _pipeStreamWriter = null;
-        }
-
-        if (_namedPipeClient != null)
-        {
-            _namedPipeClient.Close();
-            await _namedPipeClient.DisposeAsync();
-            _namedPipeClient = null;
-        }
-
-        StopConsoleProcess();
-        _logger.LogInformation("Disconnected.");
+        Hide();
+        if (_pipeStreamWriter is not null) await _pipeStreamWriter.DisposeAsync();
+        _pipeStreamWriter = null;
+        if (_namedPipeClient is not null) await _namedPipeClient.DisposeAsync();
+        _namedPipeClient = null;
         _disposed = true;
     }
 }

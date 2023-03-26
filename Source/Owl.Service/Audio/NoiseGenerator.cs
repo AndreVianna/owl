@@ -1,4 +1,4 @@
-namespace Owl.Service;
+namespace Owl.Service.Audio;
 
 public class NoiseGenerator
 {
@@ -8,6 +8,7 @@ public class NoiseGenerator
     private readonly BufferedWaveProvider _waveProvider;
     private readonly SilenceDetectingSampleProvider _silenceDetector;
     private readonly ILogger<NoiseGenerator> _logger;
+    private CancellationTokenSource? _noiseCancellationTokenSource = null;
 
     public NoiseGenerator(IWaveIn waveIn, SpeechClient.StreamingRecognizeStream stream, ILoggerFactory loggerFactory)
     {
@@ -17,6 +18,28 @@ public class NoiseGenerator
         _waveProvider = new BufferedWaveProvider(waveIn.WaveFormat);
         _floatBuffer = new float[_buffer.Length / 2];
         _silenceDetector = new SilenceDetectingSampleProvider(_waveProvider.ToSampleProvider());
+    }
+
+    public void Start()
+    {
+        _noiseCancellationTokenSource = new CancellationTokenSource();
+        var noiseCancellationToken = _noiseCancellationTokenSource.Token;
+        Task.Run(async () =>
+        {
+            await Task.Delay(5000, noiseCancellationToken);
+            while (!noiseCancellationToken.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5000), noiseCancellationToken);
+                if (noiseCancellationToken.IsCancellationRequested) return;
+
+                await GenerateNoiseAsync();
+            }
+        }, noiseCancellationToken);
+    }
+
+    public void Stop()
+    {
+        _noiseCancellationTokenSource?.Cancel();
     }
 
     public async Task GenerateNoiseAsync()

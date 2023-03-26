@@ -1,3 +1,5 @@
+using Owl.Service.Providers;
+
 namespace Owl.Service;
 
 public class Worker : BackgroundService
@@ -12,28 +14,10 @@ public class Worker : BackgroundService
         _logger.LogDebug("Worker created.");
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteAsync(CancellationToken cancellationToken)
     {
         _logger.LogDebug("Initializing worker...");
-        await InitializeSpeechRecognitionAsync(stoppingToken);
+        await _provider.StartAsync(cancellationToken);
         _logger.LogDebug("Worker initialized.");
-    }
-
-    private async Task InitializeSpeechRecognitionAsync(CancellationToken cancellationToken)
-    {
-        var waveIn = new WaveInEvent { WaveFormat = new WaveFormat(16000, 1) };
-        var waveProvider = new BufferedWaveProvider(waveIn.WaveFormat);
-        var silenceDetector = new SilenceDetectingSampleProvider(waveProvider.ToSampleProvider());
-
-        await _provider.InitializeAsync(cancellationToken);
-        waveIn.DataAvailable += async (_, args) => await _provider.ProcessAudioAsync(args.Buffer, args.BytesRecorded);
-
-        waveIn.StartRecording();
-
-        cancellationToken.Register(() =>
-        {
-            waveIn.StopRecording();
-            waveIn.Dispose();
-        });
     }
 }

@@ -1,4 +1,4 @@
-namespace Owl.Service;
+namespace Owl.Service.Output;
 
 public interface ITimestampedFile
 {

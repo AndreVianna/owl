@@ -1,10 +1,11 @@
+using Owl.Service.Providers;
+
 Host.CreateDefaultBuilder()
     .ConfigureHostConfiguration(builder => builder.AddUserSecrets<Program>())
     .UseWindowsService()
     .ConfigureServices((_, services) =>
     {
         services.AddSingleton<IConsoleWindow, ConsoleWindow>();
-        services.AddSingleton<IConnectedConsole, ConnectedConsole>();
         services.AddSingleton<ITimestampedFile, TimestampedFile>();
         services.AddSingleton<IRecorder, Recorder>();
         services.AddSingleton<ITranscriptionProvider>(provider =>

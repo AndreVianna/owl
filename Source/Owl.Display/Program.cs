@@ -4,28 +4,27 @@ using var namedPipeServer = new NamedPipeServerStream("OwlPipe");
 namedPipeServer.WaitForConnection();
 
 using var reader = new StreamReader(namedPipeServer);
-var previousText = string.Empty;
+var maxLength = 0;
+
 while (reader.ReadLine() is { } line)
 {
     if (string.IsNullOrWhiteSpace(line)) continue;
 
-    var isFinal = line.StartsWith("[F]");
-    line = isFinal ? line[3..] : line;
-    if (!isFinal && line.Length < previousText.Length) continue;
+    var isNewLine = line.EndsWith("[nl]");
+    line = isNewLine ? line[..^4] : line;
+    if (!isNewLine && line.Length < maxLength) continue;
 
-    previousText = UpdateConsole(line, previousText, isFinal);
+    UpdateConsole(line, isNewLine);
 }
 
-static string UpdateConsole(string line, string previousText1, bool isFinal)
+void UpdateConsole(string line, bool isNewLine)
 {
-    var text = line.PadRight(Math.Max(previousText1.Length, line.Length));
-    Console.SetCursorPosition(0, Console.CursorTop);
-    if (!isFinal)
-    {
-        Console.Write(text);
-        return line;
-    }
+    maxLength = Math.Max(maxLength, line.Length);
 
-    Console.WriteLine(text);
-    return string.Empty;
+    var text = line.PadRight(maxLength);
+    Console.Write($"\r{text}");
+    if (!isNewLine) return;
+
+    Console.WriteLine();
+    maxLength = 0;
 }

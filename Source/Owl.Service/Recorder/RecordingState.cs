@@ -1,6 +1,6 @@
-namespace Owl.Service;
+namespace Owl.Service.AudioRecorder;
 
-public enum RecordingState
+internal enum RecordingState
 {
     Idle,
     Starting,
